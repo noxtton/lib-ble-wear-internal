@@ -52,3 +52,4 @@ export abstract class DeviceConnection {
     this.callbacks.onHealthMetrics?.(fullMetrics);
   }
 }
+

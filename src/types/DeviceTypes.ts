@@ -1,13 +1,3 @@
-export * from '../core/BLEManager';
-export * from '../core/DeviceConnection';
-export * from '../devices/xiaomi/MiBandDevice';
-export * from '../devices/xiaomi/MiBandProtocol';
-export * from '../types/DeviceTypes';
-export * from '../utils/BinaryUtils';
-
-export { BLEManager } from '../core/BLEManager';
-export { MiBandDevice } from '../devices/xiaomi/MiBandDevice';
-
 export interface DeviceCandidate {
   id: string;
   name: string;
@@ -25,6 +15,7 @@ export enum DeviceType {
   MI_BAND_5 = 'MI_BAND_5',
   MI_BAND_6 = 'MI_BAND_6',
   MI_BAND_7 = 'MI_BAND_7',
+  MI_BAND_8 = 'MI_BAND_8',
   UNKNOWN = 'UNKNOWN'
 }
 
@@ -35,6 +26,51 @@ export interface HealthMetrics {
   standingHours?: number;
   timestamp: Date;
   deviceAddress: string;
+}
+
+export interface DetailedActivityData {
+  steps: number;
+  calories: number;
+  distance: number;
+  activeMinutes: number;
+  heartRate?: number;
+  timestamp: Date;
+  dataType: 'realtime' | 'historical';
+}
+
+export interface HeartRateData {
+  heartRate: number;
+  timestamp: Date;
+  quality: 'good' | 'poor' | 'unknown';
+}
+
+export enum DeviceState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  AUTHENTICATING = 'authenticating',
+  AUTHENTICATED = 'authenticated',
+  READY = 'ready',
+  ERROR = 'error'
+}
+
+export enum BLEErrorType {
+  CONNECTION_FAILED = 'connection_failed',
+  AUTHENTICATION_FAILED = 'authentication_failed',
+  CHARACTERISTIC_NOT_FOUND = 'characteristic_not_found',
+  WRITE_FAILED = 'write_failed',
+  READ_FAILED = 'read_failed',
+  NOTIFICATION_FAILED = 'notification_failed',
+  TIMEOUT = 'timeout',
+  DEVICE_NOT_SUPPORTED = 'device_not_supported',
+  PERMISSIONS_DENIED = 'permissions_denied'
+}
+
+export interface DeviceSignature {
+  namePatterns: string[];
+  serviceUUIDs: string[];
+  manufacturerData?: number[];
+  minRSSI?: number;
 }
 
 export interface BLECharacteristic {
@@ -65,5 +101,9 @@ export interface PairingOptions {
   autoConnect?: boolean;
 }
 
-
-
+export interface ActivityData {
+  steps?: number;
+  calories?: number;
+  standingHours?: number;
+  distance?: number;
+}

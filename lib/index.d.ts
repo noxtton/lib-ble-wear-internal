@@ -1,0 +1,11 @@
+export { BLEManager } from './core/BLEManager';
+export { DeviceConnection } from './core/DeviceConnection';
+export { MiBandDevice } from './devices/xiaomi/MiBandDevice';
+export { MiBandProtocol } from './devices/xiaomi/MiBandProtocol';
+export type { DeviceCandidate, HealthMetrics } from './types/DeviceTypes';
+export { BinaryUtils } from './utils/BinaryUtils';
+export { DeviceDiscovery } from './utils/DeviceDiscovery';
+export { DeviceType } from './types/DeviceTypes';
+export { DeviceState, BLEErrorType, DeviceEventCallbacks } from './types/DeviceTypes';
+export { DeviceStateManager } from './core/DeviceStateManager';
+export { BLEError } from './utils/BLEError';

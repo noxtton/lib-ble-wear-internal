@@ -3,7 +3,15 @@
   "version": "1.0.0",
   "description": "Cross-platform BLE library for connecting to wearable devices based on Gadget Bridge protocols",
   "main": "lib/index.js",
+  "module": "lib/index.esm.js",
   "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.esm.js",
+      "require": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
@@ -32,20 +40,14 @@
   ],
   "author": "QVAC Team",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-org/ble-wearables.git"
-  },
-  "bugs": {
-    "url": "https://github.com/your-org/ble-wearables/issues"
-  },
-  "homepage": "https://github.com/your-org/ble-wearables#readme",
   "peerDependencies": {
     "react": ">=16.8.0",
     "react-native": ">=0.60.0"
   },
   "dependencies": {
-    "react-native-ble-plx": "^3.1.2"
+    "react-native-ble-plx": "^3.1.2",
+    "react-native-crypto": "^2.2.0",
+    "react-native-randombytes": "^3.6.1"
   },
   "devDependencies": {
     "@types/react": "^18.0.0",
@@ -61,4 +63,3 @@
     "stream": false
   }
 }
-
