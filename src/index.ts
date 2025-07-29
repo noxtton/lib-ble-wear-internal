@@ -9,3 +9,5 @@ export { DeviceType } from './types/DeviceTypes';
 export { DeviceState, BLEErrorType ,DeviceEventCallbacks} from './types/DeviceTypes';
 export { DeviceStateManager } from './core/DeviceStateManager';
 export{ BLEError }from './utils/BLEError';
+export { MiBandAuthentication } from './devices/xiaomi/MiBandAuthentication';
+export { MiBandModule, MiBand } from './core/MiBandModule';

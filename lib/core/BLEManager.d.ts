@@ -1,28 +1,33 @@
+import { Device } from 'react-native-ble-plx';
 import { DeviceCandidate, DeviceEventCallbacks, PairingOptions } from '../types/DeviceTypes';
 export declare class BLEManager {
     private bleManager;
     private connectedDevices;
     private scanningDevices;
     private allScannedDevices;
+    private bondedDevices;
     private probedDevices;
     private callbacks;
     private isScanning;
     private isInitialized;
     constructor(callbacks?: DeviceEventCallbacks);
     private initializeBLE;
-    requestPermissions(): Promise<boolean>;
-    isReady(): boolean;
-    waitUntilReady(timeout?: number): Promise<void>;
-    startScan(timeoutMs?: number): Promise<DeviceCandidate[]>;
+    getBondedDevices(): Promise<DeviceCandidate[]>;
+    private probeBondedDevices;
+    startScan(timeoutMs?: number, includeBonded?: boolean): Promise<DeviceCandidate[]>;
     private probeDevice;
     private identifyCompatibleDevices;
     private identifyDeviceByName;
+    requestPermissions(): Promise<boolean>;
+    isReady(): boolean;
+    waitUntilReady(timeout?: number): Promise<void>;
     stopScan(): void;
     pairDevice(deviceAddress: string, options?: PairingOptions): Promise<any>;
     disconnectDevice(deviceAddress: string): Promise<void>;
     getConnectedDevice(deviceAddress: string): any;
     getConnectedDevices(): any[];
-    getAllScannedDevices(): any[];
+    getAllScannedDevices(): Device[];
+    getBondedDevicesMap(): Device[];
     getProbedDevices(): any[];
     destroy(): Promise<void>;
 }

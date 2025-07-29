@@ -1,697 +1,410 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  Alert,
-  TextInput,
-  ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
-  Modal,
   FlatList,
+  Alert,
+  StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
-import {
-  BLEManager,
-  DeviceCandidate,
-  DeviceEventCallbacks,
-  HealthMetrics,
-  DeviceState,
-  BLEError,
-  BLEErrorType,
-  DeviceConnection
-} from 'ble-wearables';
+import { MiBand,  DeviceCandidate } from 'ble-wearables';
 
-interface ConnectionInfo {
-  device: DeviceCandidate;
-  connection: DeviceConnection;
-  state: DeviceState;
-  batteryLevel?: number;
+interface HealthData {
+  heartRate?: number;
+  steps?: number;
+  calories?: number;
+  standingHours?: number;
+  timestamp: Date;
 }
 
-export default function BLEWearablesExample() {
-  // BLE Manager state
-  const [bleManager] = useState(() => new BLEManager());
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-
-  // Scanning state
+export const MiBandExample: React.FC = () => {
+  const [devices, setDevices] = useState<DeviceCandidate[]>([]);
+  const [bondedDevices, setBondedDevices] = useState<DeviceCandidate[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [scannedDevices, setScannedDevices] = useState<DeviceCandidate[]>([]);
-  const [allScannedDevices, setAllScannedDevices] = useState<any[]>([]);
-  const [probedDevices, setProbedDevices] = useState<any[]>([]);
+  const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
+  const [healthData, setHealthData] = useState<HealthData>({
+    timestamp: new Date(),
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Connection state
-  const [connectedDevices, setConnectedDevices] = useState<Map<string, ConnectionInfo>>(new Map());
-  const [authToken, setAuthToken] = useState('1234567890abcdef1234567890abcdef');
-
-  // Health data state
-  const [healthMetrics, setHealthMetrics] = useState<HealthMetrics[]>([]);
-  const [latestHeartRate, setLatestHeartRate] = useState<number | null>(null);
-  const [latestSteps, setLatestSteps] = useState<number | null>(null);
-  const [latestCalories, setLatestCalories] = useState<number | null>(null);
-
-
-  const [showDeviceModal, setShowDeviceModal] = useState(false);
-  const [showHealthDataModal, setShowHealthDataModal] = useState(false);
-  const [showDebugModal, setShowDebugModal] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-
-  const logRef = useRef<string[]>([]);
-
-  // Logging helper
-  const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-    logRef.current = [logMessage, ...logRef.current.slice(0, 99)];
-    setLogs([...logRef.current]);
-    console.info(logMessage);
-  };
-
-  // Setup BLE callbacks
   useEffect(() => {
-    const callbacks: DeviceEventCallbacks = {
-      onConnectionStateChange: (connected, deviceAddress) => {
-        addLog(`Device ${deviceAddress} ${connected ? 'connected' : 'disconnected'}`);
-        if (!connected) {
-          setConnectedDevices(prev => {
-            const newMap = new Map(prev);
-            newMap.delete(deviceAddress);
-            return newMap;
-          });
-        }
-      },
+    const unsubscribePairingSuccess = MiBand.addListener('PairingSuccess', (event) => {
+      console.log('Device paired successfully:', event.deviceAddress);
+      setConnectedDevice(event.deviceAddress);
+      setIsLoading(false);
+      Alert.alert('Success', 'Device paired successfully!');
+    });
 
-      onHealthMetrics: (metrics) => {
-        addLog(`Health metrics: HR:${metrics.heartRate} Steps:${metrics.steps} Cal:${metrics.calories}`);
-        setHealthMetrics(prev => [metrics, ...prev.slice(0, 49)]); // Keep last 50 readings
-      },
+    const unsubscribePairingError = MiBand.addListener('PairingError', (event) => {
+      console.error('Pairing error:', event.error);
+      setIsLoading(false);
+      Alert.alert('Error', `Pairing failed: ${event.error}`);
+    });
 
-      onHeartRate: (heartRate, deviceAddress) => {
-        addLog(`Heart rate: ${heartRate} BPM from ${deviceAddress}`);
-        setLatestHeartRate(heartRate);
-      },
+    const unsubscribeHeartRate = MiBand.addListener('onXiaomiHeartRateData', (event) => {
+      console.log('Heart rate update:', event.heartRate);
+      setHealthData(prev => ({
+        ...prev,
+        heartRate: event.heartRate,
+        timestamp: new Date(),
+      }));
+    });
 
-      onSteps: (steps, deviceAddress) => {
-        addLog(`Steps: ${steps} from ${deviceAddress}`);
-        setLatestSteps(steps);
-      },
+    const unsubscribeSteps = MiBand.addListener('onXiaomiStepsData', (event) => {
+      console.log('Steps update:', event.steps);
+      setHealthData(prev => ({
+        ...prev,
+        steps: event.steps,
+        timestamp: new Date(),
+      }));
+    });
 
-      onCalories: (calories, deviceAddress) => {
-        addLog(`Calories: ${calories} from ${deviceAddress}`);
-        setLatestCalories(calories);
-      },
+    const unsubscribeCalories = MiBand.addListener('onXiaomiCaloriesData', (event) => {
+      console.log('Calories update:', event.calories);
+      setHealthData(prev => ({
+        ...prev,
+        calories: event.calories,
+        timestamp: new Date(),
+      }));
+    });
 
-      onError: (error, deviceAddress) => {
-        const errorMsg = `Error${deviceAddress ? ` from ${deviceAddress}` : ''}: ${error.message}`;
-        addLog(errorMsg);
-        
-        if (error instanceof BLEError) {
-          switch (error.type) {
-            case BLEErrorType.PERMISSIONS_DENIED:
-              Alert.alert('Permissions Error', 'Bluetooth permissions are required to use this app.');
-              break;
-            case BLEErrorType.AUTHENTICATION_FAILED:
-              Alert.alert('Authentication Failed', 'Please check your auth token. Mi Band devices require a valid 16-byte hex key.');
-              break;
-            case BLEErrorType.CONNECTION_FAILED:
-              Alert.alert('Connection Failed', 'Could not connect to the device. Make sure it\'s nearby and not connected to another app.');
-              break;
-            default:
-              Alert.alert('BLE Error', error.message);
-          }
-        } else {
-          Alert.alert('Error', error.message);
-        }
+    const unsubscribeStandingHours = MiBand.addListener('onXiaomiStandingHoursData', (event) => {
+      console.log('Standing hours update:', event.standingHours);
+      setHealthData(prev => ({
+        ...prev,
+        standingHours: event.standingHours,
+        timestamp: new Date(),
+      }));
+    });
+
+    const unsubscribeConnection = MiBand.addListener('GattConnectionState', (event) => {
+      console.log('Connection state changed:', event.status, event.deviceAddress);
+      if (event.status === 'disconnected') {
+        setConnectedDevice(null);
       }
+    });
+
+    loadBondedDevices();
+
+    return () => {
+      unsubscribePairingSuccess();
+      unsubscribePairingError();
+      unsubscribeHeartRate();
+      unsubscribeSteps();
+      unsubscribeCalories();
+      unsubscribeStandingHours();
+      unsubscribeConnection();
     };
-
-    bleManager.callbacks = callbacks;
-  }, [bleManager]);
-
-  // Initialize BLE Manager
-  useEffect(() => {
-    const initializeBLE = async () => {
-      try {
-        addLog('Initializing BLE Manager...');
-        await bleManager.waitUntilReady(15000);
-        
-        const permissionsGranted = await bleManager.requestPermissions();
-        if (!permissionsGranted) {
-          throw new Error('Bluetooth permissions not granted');
-        }
-
-        setIsInitialized(true);
-        addLog('BLE Manager initialized successfully');
-      } catch (error) {
-        addLog(`BLE initialization failed: ${error instanceof Error ? error.message : String(error)}`);
-        Alert.alert('Initialization Failed', 'Could not initialize Bluetooth. Please check your device settings.');
-      } finally {
-        setIsInitializing(false);
-      }
-    };
-
-    initializeBLE();
   }, []);
 
-  // Scan for devices
-  const startScan = async () => {
-    if (!isInitialized) {
-      Alert.alert('Not Ready', 'BLE Manager is not initialized yet');
-      return;
+  const loadBondedDevices = useCallback(async () => {
+    try {
+      const bonded = await MiBand.getBondedDevices();
+      setBondedDevices(bonded);
+      console.log(`Found ${bonded.length} bonded devices`);
+    } catch (error) {
+      console.error('Failed to load bonded devices:', error);
     }
+  }, []);
 
-    if (isScanning) {
-      bleManager.stopScan();
-      setIsScanning(false);
-      addLog('Scan stopped');
-      return;
-    }
+  const startScan = useCallback(async () => {
+    if (isScanning) return;
+
+    setIsScanning(true);
+    setDevices([]);
 
     try {
-      setIsScanning(true);
-      setScannedDevices([]);
-      addLog('Starting device scan...');
-
-      const devices = await bleManager.startScan(15000);
-      
-      setScannedDevices(devices);
-      setAllScannedDevices(bleManager.getAllScannedDevices());
-      setProbedDevices(bleManager.getProbedDevices());
-      
-      addLog(`Scan completed. Found ${devices.length} compatible devices`);
+      const foundDevices = await MiBand.scanForDevices(15000, true);
+      setDevices(foundDevices);
+      console.log(`Found ${foundDevices.length} compatible devices`);
     } catch (error) {
-      addLog(`Scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('Scan failed:', error);
+      Alert.alert('Error', `Scan failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsScanning(false);
     }
-  };
+  }, [isScanning]);
 
-  // Connect to device
-  const connectToDevice = async (device: DeviceCandidate) => {
-    try {
-      addLog(`Connecting to ${device.name} (${device.address})...`);
-      
-      const connection = await bleManager.pairDevice(device.address, {
-        authToken: authToken.trim() || undefined,
-        timeout: 30000
-      });
+  const stopScan = useCallback(() => {
+    MiBand.stopScan();
+    setIsScanning(false);
+  }, []);
 
-      const connectionInfo: ConnectionInfo = {
-        device,
-        connection,
-        state: connection.getDeviceState(),
-      };
-
-      setConnectedDevices(prev => new Map(prev.set(device.address, connectionInfo)));
-      addLog(`Successfully connected to ${device.name}`);
-
-      // Get battery level
-      try {
-        const batteryLevel = await connection.getBatteryLevel();
-        if (batteryLevel !== null) {
-          setConnectedDevices(prev => {
-            const newMap = new Map(prev);
-            const info = newMap.get(device.address);
-            if (info) {
-              (info as ConnectionInfo).batteryLevel = batteryLevel;
-              newMap.set(device.address, info);
-            }
-            return newMap;
-          });
-          addLog(`Battery level: ${batteryLevel}%`);
-        }
-      } catch (error) {
-        addLog(`Could not read battery level: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
-    } catch (error) {
-      addLog(`Connection failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-
-  // Disconnect from device
-  const disconnectDevice = async (deviceAddress: string) => {
-    try {
-      await bleManager.disconnectDevice(deviceAddress);
-      setConnectedDevices(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(deviceAddress);
-        return newMap;
-      });
-      addLog(`Disconnected from ${deviceAddress}`);
-    } catch (error) {
-      addLog(`Disconnect failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-
-  // Trigger measurements
-  const triggerMeasurement = async (deviceAddress: string, type: 'heartRate' | 'steps' | 'calories') => {
-    const connectionInfo = connectedDevices.get(deviceAddress);
-    if (!connectionInfo) {
-      Alert.alert('Error', 'Device not connected');
-      return;
-    }
+  const connectToDevice = useCallback(async (device: DeviceCandidate) => {
+    setIsLoading(true);
 
     try {
-      let success = false;
-      let measurementType = '';
+      const authToken = 'your_auth_token_here'; 
 
-      switch (type) {
-        case 'heartRate':
-          success = await connectionInfo.connection.triggerHeartRateMeasurement();
-          measurementType = 'heart rate';
-          break;
-        case 'steps':
-          success = await connectionInfo.connection.triggerStepsMeasurement();
-          measurementType = 'steps';
-          break;
-        case 'calories':
-          success = await connectionInfo.connection.triggerCaloriesMeasurement();
-          measurementType = 'calories';
-          break;
-      }
-
-      if (success) {
-        addLog(`${measurementType} measurement triggered successfully`);
-      } else {
-        addLog(`Failed to trigger ${measurementType} measurement`);
-      }
+      await MiBand.startPairing(device.address, authToken);
+      console.log('Pairing initiated for device:', device.name);
     } catch (error) {
-      addLog(`Measurement trigger failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('Connection failed:', error);
+      setIsLoading(false);
+      Alert.alert('Error', `Connection failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-  };
+  }, []);
 
-  const renderDeviceItem = ({ item }: { item: DeviceCandidate }) => (
-    <View style={styles.deviceItem}>
-      <View style={styles.deviceInfo}>
-        <Text style={styles.deviceName}>{item.name}</Text>
-        <Text style={styles.deviceDetails}>
-          {item.deviceType} • {item.rssi ? `${item.rssi} dBm` : 'Unknown RSSI'}
-        </Text>
-        <Text style={styles.deviceAddress}>{item.address}</Text>
-      </View>
-      <TouchableOpacity
-        style={styles.connectButton}
-        onPress={() => connectToDevice(item)}
-      >
-        <Text style={styles.connectButtonText}>Connect</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const disconnectDevice = useCallback(async () => {
+    if (!connectedDevice) return;
 
-  const renderConnectedDevice = (connectionInfo: ConnectionInfo) => (
-    <View key={connectionInfo.device.address} style={styles.connectedDeviceCard}>
-      <View style={styles.connectedDeviceHeader}>
-        <Text style={styles.connectedDeviceName}>{connectionInfo.device.name}</Text>
-        <TouchableOpacity
-          style={styles.disconnectButton}
-          onPress={() => disconnectDevice(connectionInfo.device.address)}
-        >
-          <Text style={styles.disconnectButtonText}>Disconnect</Text>
-        </TouchableOpacity>
-      </View>
-      
-      <Text style={styles.deviceStateText}>State: {connectionInfo.state}</Text>
-      {connectionInfo.batteryLevel !== undefined && (
-        <Text style={styles.batteryText}>Battery: {connectionInfo.batteryLevel}%</Text>
-      )}
+    try {
+      await MiBand.stopPairing();
+      setConnectedDevice(null);
+      Alert.alert('Success', 'Device disconnected');
+    } catch (error) {
+      console.error('Disconnect failed:', error);
+      Alert.alert('Error', `Disconnect failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [connectedDevice]);
 
-      <View style={styles.measurementButtons}>
-        <TouchableOpacity
-          style={styles.measurementButton}
-          onPress={() => triggerMeasurement(connectionInfo.device.address, 'heartRate')}
-        >
-          <Text style={styles.measurementButtonText}>Heart Rate</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.measurementButton}
-          onPress={() => triggerMeasurement(connectionInfo.device.address, 'steps')}
-        >
-          <Text style={styles.measurementButtonText}>Steps</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={styles.measurementButton}
-          onPress={() => triggerMeasurement(connectionInfo.device.address, 'calories')}
-        >
-          <Text style={styles.measurementButtonText}>Calories</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  const triggerHeartRate = useCallback(async () => {
+    if (!connectedDevice) return;
 
-  if (isInitializing) {
+    try {
+      const result = await MiBand.triggerXiaomiHrMeasure();
+      console.log('Heart rate trigger result:', result);
+    } catch (error) {
+      console.error('Heart rate trigger failed:', error);
+      Alert.alert('Error', `Heart rate measurement failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [connectedDevice]);
+
+  const triggerSteps = useCallback(async () => {
+    if (!connectedDevice) return;
+
+    try {
+      const result = await MiBand.triggerXiaomiStepsMeasure();
+      console.log('Steps trigger result:', result);
+    } catch (error) {
+      console.error('Steps trigger failed:', error);
+      Alert.alert('Error', `Steps measurement failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [connectedDevice]);
+
+  const triggerCalories = useCallback(async () => {
+    if (!connectedDevice) return;
+
+    try {
+      const result = await MiBand.triggerXiaomiCaloriesMeasure();
+      console.log('Calories trigger result:', result);
+    } catch (error) {
+      console.error('Calories trigger failed:', error);
+      Alert.alert('Error', `Calories measurement failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [connectedDevice]);
+
+  const triggerStandingHours = useCallback(async () => {
+    if (!connectedDevice) return;
+
+    try {
+      const result = await MiBand.triggerXiaomiStandingHoursMeasure();
+      console.log('Standing hours trigger result:', result);
+    } catch (error) {
+      console.error('Standing hours trigger failed:', error);
+      Alert.alert('Error', `Standing hours measurement failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [connectedDevice]);
+
+  const renderDevice = ({ item }: { item: DeviceCandidate }) => {
+    const isBonded = bondedDevices.some(d => d.id === item.id);
+    
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Initializing Bluetooth...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-       <View style={styles.header}>
-        <Text style={styles.headerTitle}>BLE Wearables Example</Text>
-        <Text style={styles.headerSubtitle}>
-          Status: {isInitialized ? 'Ready' : 'Not Ready'}
-        </Text>
-      </View>
-
-      <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Authentication Token</Text>
-          <TextInput
-            style={styles.authTokenInput}
-            value={authToken}
-            onChangeText={setAuthToken}
-            placeholder="Enter 16-byte hex auth token for Mi Band"
-            placeholderTextColor="#999"
-          />
-          <Text style={styles.authTokenHelp}>
-            Required for Mi Band devices. Get this from Mi Fit app or device pairing.
+      <TouchableOpacity
+        style={[styles.deviceItem, isBonded && styles.bondedDevice]}
+        onPress={() => connectToDevice(item)}
+        disabled={isLoading}
+      >
+        <View style={styles.deviceInfo}>
+          <Text style={styles.deviceName}>{item.name}</Text>
+          <Text style={styles.deviceAddress}>{item.address}</Text>
+          <Text style={styles.deviceDetails}>
+            Type: {item.deviceType} | RSSI: {item.rssi}dBm
+            {isBonded && ' | BONDED'}
           </Text>
         </View>
+      </TouchableOpacity>
+    );
+  };
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Device Scanning</Text>
-            <TouchableOpacity
-              style={[styles.scanButton, isScanning && styles.scanButtonActive]}
-              onPress={startScan}
-              disabled={!isInitialized}
-            >
-              {isScanning ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={styles.scanButtonText}>
-                  {scannedDevices.length > 0 ? 'Scan Again' : 'Start Scan'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Mi Band React Native Demo</Text>
 
-          {scannedDevices.length > 0 && (
-            <View>
-              <Text style={styles.deviceCount}>
-                Found {scannedDevices.length} compatible device(s)
-              </Text>
-              <FlatList
-                data={scannedDevices}
-                renderItem={renderDeviceItem}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-              />
-            </View>
-          )}
+      <View style={styles.statusContainer}>
+        <Text style={styles.statusText}>
+          Status: {connectedDevice ? `Connected to ${connectedDevice}` : 'Not connected'}
+        </Text>
+        {isLoading && <ActivityIndicator size="small" color="#007AFF" />}
+      </View>
+
+      {connectedDevice && (
+        <View style={styles.healthDataContainer}>
+          <Text style={styles.sectionTitle}>Health Data</Text>
+          <Text style={styles.healthData}>Heart Rate: {healthData.heartRate || 'N/A'} bpm</Text>
+          <Text style={styles.healthData}>Steps: {healthData.steps || 'N/A'}</Text>
+          <Text style={styles.healthData}>Calories: {healthData.calories || 'N/A'}</Text>
+          <Text style={styles.healthData}>Standing Hours: {healthData.standingHours || 'N/A'}</Text>
+          <Text style={styles.healthData}>Last Update: {healthData.timestamp.toLocaleTimeString()}</Text>
         </View>
+      )}
 
-        {connectedDevices.size > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Connected Devices</Text>
-            {Array.from<ConnectionInfo>(connectedDevices.values()).map(renderConnectedDevice)}
-          </View>
+      <View style={styles.controlsContainer}>
+        {!connectedDevice ? (
+          <>
+            <TouchableOpacity
+              style={[styles.button, isScanning && styles.buttonDisabled]}
+              onPress={isScanning ? stopScan : startScan}
+              disabled={isLoading}
+            >
+              <Text style={styles.buttonText}>
+                {isScanning ? 'Stop Scan' : 'Start Scan'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={loadBondedDevices}
+              disabled={isLoading}
+            >
+              <Text style={styles.buttonText}>Refresh Bonded Devices</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.button} onPress={disconnectDevice}>
+              <Text style={styles.buttonText}>Disconnect</Text>
+            </TouchableOpacity>
+
+            <View style={styles.measurementButtons}>
+              <TouchableOpacity style={styles.smallButton} onPress={triggerHeartRate}>
+                <Text style={styles.buttonText}>Heart Rate</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.smallButton} onPress={triggerSteps}>
+                <Text style={styles.buttonText}>Steps</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.smallButton} onPress={triggerCalories}>
+                <Text style={styles.buttonText}>Calories</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.smallButton} onPress={triggerStandingHours}>
+                <Text style={styles.buttonText}>Standing</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         )}
+      </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Latest Health Data</Text>
-          <View style={styles.healthDataGrid}>
-            <View style={styles.healthDataItem}>
-              <Text style={styles.healthDataLabel}>Heart Rate</Text>
-              <Text style={styles.healthDataValue}>
-                {latestHeartRate ? `${latestHeartRate} BPM` : 'N/A'}
-              </Text>
-            </View>
-            
-            <View style={styles.healthDataItem}>
-              <Text style={styles.healthDataLabel}>Steps</Text>
-              <Text style={styles.healthDataValue}>
-                {latestSteps ? latestSteps.toLocaleString() : 'N/A'}
-              </Text>
-            </View>
-            
-            <View style={styles.healthDataItem}>
-              <Text style={styles.healthDataLabel}>Calories</Text>
-              <Text style={styles.healthDataValue}>
-                {latestCalories ? `${latestCalories} cal` : 'N/A'}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Debug & Information</Text>
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setShowHealthDataModal(true)}
-            >
-              <Text style={styles.actionButtonText}>📊 Health History</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setShowDebugModal(true)}
-            >
-              <Text style={styles.actionButtonText}>🐛 Debug Logs</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setShowDeviceModal(true)}
-            >
-              <Text style={styles.actionButtonText}>🔍 All Devices</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
-
-      <Modal
-        visible={showHealthDataModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Health Data History</Text>
-            <TouchableOpacity onPress={() => setShowHealthDataModal(false)}>
-              <Text style={styles.modalCloseButton}>Close</Text>
-            </TouchableOpacity>
-          </View>
-          
+      {!connectedDevice && (
+        <View style={styles.deviceListContainer}>
+          <Text style={styles.sectionTitle}>
+            Available Devices ({devices.length})
+            {bondedDevices.length > 0 && ` | Bonded: ${bondedDevices.length}`}
+          </Text>
           <FlatList
-            data={healthMetrics}
-            keyExtractor={(item, index) => index.toString()}
-            renderItem={({ item }) => (
-              <View style={styles.healthMetricItem}>
-                <Text style={styles.healthMetricTime}>
-                  {item.timestamp.toLocaleTimeString()}
-                </Text>
-                <Text style={styles.healthMetricData}>
-                  HR: {item.heartRate || 'N/A'} | 
-                  Steps: {item.steps || 'N/A'} | 
-                  Cal: {item.calories || 'N/A'}
-                </Text>
-                <Text style={styles.healthMetricDevice}>
-                  Device: {item.deviceAddress}
-                </Text>
-              </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No health data recorded yet</Text>
-            }
+            data={devices}
+            renderItem={renderDevice}
+            keyExtractor={(item) => item.id}
+            style={styles.deviceList}
+            showsVerticalScrollIndicator={false}
           />
-        </SafeAreaView>
-      </Modal>
-
-      <Modal
-        visible={showDebugModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Debug Logs</Text>
-            <TouchableOpacity onPress={() => setShowDebugModal(false)}>
-              <Text style={styles.modalCloseButton}>Close</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <FlatList
-            data={logs}
-            keyExtractor={(item, index) => index.toString()}
-            renderItem={({ item }) => (
-              <Text style={styles.logItem}>{item}</Text>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No logs yet</Text>
-            }
-          />
-        </SafeAreaView>
-      </Modal>
-
-      <Modal
-        visible={showDeviceModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>All Scanned Devices</Text>
-            <TouchableOpacity onPress={() => setShowDeviceModal(false)}>
-              <Text style={styles.modalCloseButton}>Close</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView>
-            <Text style={styles.deviceSectionTitle}>Compatible Devices ({scannedDevices.length})</Text>
-            {scannedDevices.map((device, index) => (
-              <View key={device.id} style={styles.debugDeviceItem}>
-                <Text style={styles.debugDeviceName}>{device.name}</Text>
-                <Text>Type: {device.deviceType}</Text>
-                <Text>Address: {device.address}</Text>
-                <Text>RSSI: {device.rssi} dBm</Text>
-              </View>
-            ))}
-            
-            <Text style={styles.deviceSectionTitle}>All Scanned ({allScannedDevices.length})</Text>
-            {allScannedDevices.map((device, index) => (
-              <View key={`all-${index}`} style={styles.debugDeviceItem}>
-                <Text style={styles.debugDeviceName}>
-                  {device.name || device.localName || 'Unnamed Device'}
-                </Text>
-                <Text>ID: {device.id}</Text>
-                <Text>RSSI: {device.rssi} dBm</Text>
-                <Text>Services: {device.serviceUUIDs?.length || 0}</Text>
-              </View>
-            ))}
-            
-            <Text style={styles.deviceSectionTitle}>Probed Devices ({probedDevices.length})</Text>
-            {probedDevices.map((device, index) => (
-              <View key={`probed-${index}`} style={styles.debugDeviceItem}>
-                <Text style={styles.debugDeviceName}>
-                  {device.name || 'Unnamed Device'}
-                </Text>
-                <Text>ID: {device.id}</Text>
-                <Text>Services: {device.services?.length || 0}</Text>
-                <Text>Mi Band: {device.isMiBand ? 'Yes' : 'No'}</Text>
-                <Text>Probed: {device.probedAt?.toLocaleTimeString()}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-    </SafeAreaView>
+        </View>
+      )}
+    </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    padding: 20,
+    backgroundColor: '#f5f5f5',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  header: {
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
-  },
-  headerTitle: {
+  title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#000',
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#333',
   },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  content: {
-    flex: 1,
-  },
-  section: {
-    backgroundColor: '#FFF',
-    margin: 16,
-    padding: 16,
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  sectionHeader: {
+  statusContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  statusText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  healthDataContainer: {
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 15,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 16,
+    marginBottom: 10,
+    color: '#333',
   },
-  authTokenInput: {
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  authTokenHelp: {
-    fontSize: 12,
+  healthData: {
+    fontSize: 16,
+    marginBottom: 5,
     color: '#666',
-    fontStyle: 'italic',
   },
-  scanButton: {
+  controlsContainer: {
+    marginBottom: 20,
+  },
+  button: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    minWidth: 80,
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
     alignItems: 'center',
   },
-  scanButtonActive: {
-    backgroundColor: '#FF3B30',
+  buttonDisabled: {
+    backgroundColor: '#ccc',
   },
-  scanButtonText: {
-    color: '#FFF',
-    fontSize: 14,
+  buttonText: {
+    color: '#fff',
     fontWeight: '600',
+    fontSize: 16,
   },
-  deviceCount: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
+  measurementButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  smallButton: {
+    backgroundColor: '#007AFF',
+    padding: 10,
+    borderRadius: 6,
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  deviceListContainer: {
+    flex: 1,
+  },
+  deviceList: {
+    flex: 1,
   },
   deviceItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#F9F9F9',
-    borderRadius: 6,
-    marginBottom: 8,
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF',
+  },
+  bondedDevice: {
+    borderLeftColor: '#34C759',
+    backgroundColor: '#f0fff4',
   },
   deviceInfo: {
     flex: 1,
@@ -699,204 +412,19 @@ const styles = StyleSheet.create({
   deviceName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#333',
+    marginBottom: 4,
+  },
+  deviceAddress: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'monospace',
+    marginBottom: 4,
   },
   deviceDetails: {
     fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  deviceAddress: {
-    fontSize: 10,
     color: '#999',
-    marginTop: 2,
-  },
-  connectButton: {
-    backgroundColor: '#34C759',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  connectButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  connectedDeviceCard: {
-    backgroundColor: '#F0F9FF',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    marginBottom: 12,
-  },
-  connectedDeviceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  connectedDeviceName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  disconnectButton: {
-    backgroundColor: '#FF3B30',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  disconnectButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  deviceStateText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  batteryText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 12,
-  },
-  measurementButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  measurementButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    flex: 1,
-    marginHorizontal: 2,
-    alignItems: 'center',
-  },
-  measurementButtonText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  healthDataGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  healthDataItem: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#F9F9F9',
-    borderRadius: 6,
-    marginHorizontal: 4,
-  },
-  healthDataLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  healthDataValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    backgroundColor: '#8E8E93',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    flex: 1,
-    marginHorizontal: 2,
-    alignItems: 'center',
-  },
-  actionButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-  },
-  modalCloseButton: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
-  healthMetricItem: {
-    backgroundColor: '#FFF',
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 4,
-    borderRadius: 6,
-  },
-  healthMetricTime: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  healthMetricData: {
-    fontSize: 14,
-    color: '#000',
-    marginBottom: 2,
-  },
-  healthMetricDevice: {
-    fontSize: 10,
-    color: '#999',
-  },
-  logItem: {
-    fontSize: 11,
-    color: '#000',
-    padding: 8,
-    backgroundColor: '#FFF',
-    marginHorizontal: 16,
-    marginVertical: 2,
-    borderRadius: 4,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: 16,
-    marginTop: 40,
-  },
-  deviceSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    margin: 16,
-    marginBottom: 8,
-  },
-  debugDeviceItem: {
-    backgroundColor: '#FFF',
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 4,
-    borderRadius: 6,
-  },
-  debugDeviceName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
   },
 });
+
+export default MiBandExample;
