@@ -1,14 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import { DeviceCandidate, MiBand } from "ble-wearables";
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  FlatList,
-  Alert,
-  StyleSheet,
-  ActivityIndicator,
+  View,
 } from 'react-native';
-import { MiBand,  DeviceCandidate } from 'ble-wearables';
 
 interface HealthData {
   heartRate?: number;
@@ -51,7 +51,7 @@ export const MiBandExample: React.FC = () => {
       }));
     });
 
-    const unsubscribeSteps = MiBand.addListener('onXiaomiStepsData', (event) => {
+    const unsubscribeSteps = MiBand.addListener('onXiaomiStepsData', (event) =>  {
       console.log('Steps update:', event.steps);
       setHealthData(prev => ({
         ...prev,
@@ -60,7 +60,7 @@ export const MiBandExample: React.FC = () => {
       }));
     });
 
-    const unsubscribeCalories = MiBand.addListener('onXiaomiCaloriesData', (event) => {
+    const unsubscribeCalories = MiBand.addListener('onXiaomiCaloriesData', (event) =>{
       console.log('Calories update:', event.calories);
       setHealthData(prev => ({
         ...prev,
@@ -69,7 +69,7 @@ export const MiBandExample: React.FC = () => {
       }));
     });
 
-    const unsubscribeStandingHours = MiBand.addListener('onXiaomiStandingHoursData', (event) => {
+    const unsubscribeStandingHours = MiBand.addListener('onXiaomiStandingHoursData', (event) =>  {
       console.log('Standing hours update:', event.standingHours);
       setHealthData(prev => ({
         ...prev,
@@ -87,7 +87,7 @@ export const MiBandExample: React.FC = () => {
 
     loadBondedDevices();
 
-    return () => {
+    return () =>{
       unsubscribePairingSuccess();
       unsubscribePairingError();
       unsubscribeHeartRate();
@@ -98,7 +98,7 @@ export const MiBandExample: React.FC = () => {
     };
   }, []);
 
-  const loadBondedDevices = useCallback(async () => {
+  const loadBondedDevices = useCallback(async () =>{
     try {
       const bonded = await MiBand.getBondedDevices();
       setBondedDevices(bonded);
@@ -131,10 +131,11 @@ export const MiBandExample: React.FC = () => {
     setIsScanning(false);
   }, []);
 
-  const connectToDevice = useCallback(async (device: DeviceCandidate) => {
+  const connectToDevice = useCallback(async (device: DeviceCandidate) =>{
     setIsLoading(true);
 
     try {
+  
       const authToken = 'your_auth_token_here'; 
 
       await MiBand.startPairing(device.address, authToken);
@@ -146,7 +147,7 @@ export const MiBandExample: React.FC = () => {
     }
   }, []);
 
-  const disconnectDevice = useCallback(async () => {
+  const disconnectDevice = useCallback(async () =>{
     if (!connectedDevice) return;
 
     try {
@@ -159,7 +160,7 @@ export const MiBandExample: React.FC = () => {
     }
   }, [connectedDevice]);
 
-  const triggerHeartRate = useCallback(async () => {
+  const triggerHeartRate = useCallback(async () =>  {
     if (!connectedDevice) return;
 
     try {
@@ -171,7 +172,7 @@ export const MiBandExample: React.FC = () => {
     }
   }, [connectedDevice]);
 
-  const triggerSteps = useCallback(async () => {
+  const triggerSteps = useCallback(async () =>{
     if (!connectedDevice) return;
 
     try {
@@ -195,7 +196,7 @@ export const MiBandExample: React.FC = () => {
     }
   }, [connectedDevice]);
 
-  const triggerStandingHours = useCallback(async () => {
+  const triggerStandingHours = useCallback(async () =>{
     if (!connectedDevice) return;
 
     try {
@@ -207,15 +208,15 @@ export const MiBandExample: React.FC = () => {
     }
   }, [connectedDevice]);
 
-  const renderDevice = ({ item }: { item: DeviceCandidate }) => {
-    const isBonded = bondedDevices.some(d => d.id === item.id);
+  const renderDevice = ({ item }: { item: DeviceCandidate }) =>{
+    const isBonded = bondedDevices.some(d =>d.id === item.id);
     
     return (
       <TouchableOpacity
         style={[styles.deviceItem, isBonded && styles.bondedDevice]}
-        onPress={() => connectToDevice(item)}
+        onPress={ () => connectToDevice(item)}
         disabled={isLoading}
-      >
+      > 
         <View style={styles.deviceInfo}>
           <Text style={styles.deviceName}>{item.name}</Text>
           <Text style={styles.deviceAddress}>{item.address}</Text>
@@ -231,6 +232,7 @@ export const MiBandExample: React.FC = () => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Mi Band React Native Demo</Text>
+
 
       <View style={styles.statusContainer}>
         <Text style={styles.statusText}>
@@ -295,6 +297,7 @@ export const MiBandExample: React.FC = () => {
         )}
       </View>
 
+      {/* Device List */}
       {!connectedDevice && (
         <View style={styles.deviceListContainer}>
           <Text style={styles.sectionTitle}>
@@ -304,15 +307,15 @@ export const MiBandExample: React.FC = () => {
           <FlatList
             data={devices}
             renderItem={renderDevice}
-            keyExtractor={(item) => item.id}
+            keyExtractor={ (item) => item.id}
             style={styles.deviceList}
             showsVerticalScrollIndicator={false}
-          />
+          /> 
         </View>
       )}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
